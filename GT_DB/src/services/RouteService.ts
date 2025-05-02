@@ -1,58 +1,64 @@
+// Import necessary modules and explicitly typed imports
 import { DatabaseService } from './DatabaseService';
 import { createReadStream } from 'fs';
 import { chain } from 'stream-chain';
 import { parser } from 'stream-json';
 import { streamArray } from 'stream-json/streamers/StreamArray';
 import { CONFIG } from '../config/constants';
-import { LPData, RoutePath, PathGroup, PathGroupItem, TABLES } from '../types'; // Explicit imports
+import { LPData, RoutePath, PathGroup, PathGroupItem, TABLES } from '../types';
 
 export class RouteService {
+  // Method to process and store route paths from a file
   static async processPaths(filePath: string): Promise<void> {
-    const lpSet = new Set<string>();
-    const routeQueue: RoutePath[] = [];
-    const tokenPairs = new Map<string, LPData>();
+    const lpSet = new Set<string>(); // Track unique liquidity pool addresses
+    const routeQueue: RoutePath[] = []; // Queue of routes to be inserted
+    const tokenPairs = new Map<string, LPData>(); // Map of token pairs for LPs
 
+    // Process the file and extract valid path groups
     await this.processFile(filePath, (pathGroup) => {
       this.processPathGroup(pathGroup, lpSet, routeQueue, tokenPairs);
     });
 
+    // Convert LP addresses into database-compatible objects
     const lpObjects = Array.from(lpSet)
       .map((lp) => {
         const pair = tokenPairs.get(lp);
         return pair ? { ...pair } : null;
       })
-      .filter((lp): lp is LPData => lp !== null);
+      .filter((lp): lp is LPData => lp !== null); // Filter out null values
 
+    // Insert LPs and routes into the database
     if (lpObjects.length > 0) {
       await DatabaseService.batchInsertLPs(lpObjects);
     }
-
     const routeStrings = routeQueue.map((path) => JSON.stringify(path));
     await DatabaseService.batchInsertRoutes(routeStrings);
   }
 
+  // Helper method to process a file line by line
   private static async processFile(
     filePath: string,
     handler: (pathGroup: PathGroup) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      const pipeline = chain([createReadStream(filePath), parser(), streamArray()]);
+      const pipeline = chain([createReadStream(filePath), parser(), streamArray()]); // Create processing pipeline
 
       pipeline.on('data', ({ value }) => {
         try {
           if (this.isValidPathGroup(value)) {
-            handler(value);
+            handler(value); // Process each valid path group
           }
         } catch (error) {
           console.error('Error processing data chunk:', error);
         }
       });
 
-      pipeline.on('end', resolve);
-      pipeline.on('error', reject);
+      pipeline.on('end', resolve); // Resolve the promise when processing is complete
+      pipeline.on('error', reject); // Reject the promise if an error occurs
     });
   }
 
+  // Method to validate if an object is a valid path group
   private static isValidPathGroup(group: unknown): group is PathGroup {
     return (
       Array.isArray(group) &&
@@ -67,6 +73,7 @@ export class RouteService {
     );
   }
 
+  // Method to process a path group and extract LP and route data
   private static processPathGroup(
     pathGroup: PathGroup,
     lpSet: Set<string>,
@@ -79,39 +86,40 @@ export class RouteService {
           const [token, liquidities] = item;
           const normalizedToken = token.toLowerCase().trim();
 
-          if (!CONFIG.ADDRESS_REGEX.test(normalizedToken)) return null;
+          if (!CONFIG.ADDRESS_REGEX.test(normalizedToken)) return null; // Validate token format
 
           const validLiquidities = liquidities
             .filter((lp): lp is string => typeof lp === 'string')
             .map((lp) => lp.toLowerCase().trim())
-            .filter((lp) => CONFIG.ADDRESS_REGEX.test(lp));
+            .filter((lp) => CONFIG.ADDRESS_REGEX.test(lp)); // Validate LP addresses
 
           return validLiquidities.length > 0
             ? { token: normalizedToken, liquidities: validLiquidities }
             : null;
         })
-        .filter((p): p is PathGroupItem => p !== null);
+        .filter((p): p is PathGroupItem => p !== null); // Remove null entries
 
-      if (validPaths.length < CONFIG.MIN_PATH_LENGTH) return;
+      if (validPaths.length < CONFIG.MIN_PATH_LENGTH) return; // Skip short paths
 
       validPaths.forEach(({ token, liquidities }) => {
         liquidities.forEach((lp) => {
-          lpSet.add(lp);
+          lpSet.add(lp); // Add LP to the set
           tokenPairs.set(lp, {
             address: lp,
             token1_address: token,
-            token2_address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+            token2_address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // Default second token
           });
         });
       });
       for (const combination of this.generateValidRoutes(validPaths)) {
-        routeQueue.push(combination);
+        routeQueue.push(combination); // Add valid routes to the queue
       }
     } catch (error) {
       console.error('Error processing path group:', error);
     }
   }
 
+  // Generator to create all valid route combinations
   private static *generateValidRoutes(paths: PathGroupItem[]): Generator<RoutePath> {
     const liquidityOptions = paths.map((p) => p.liquidities);
 
@@ -122,24 +130,25 @@ export class RouteService {
         combination.length <= CONFIG.MAX_PATH_LENGTH &&
         uniqueLPs.size === combination.length
       ) {
-        yield paths.map(({ token }, idx) => [token, [combination[idx]]]);
+        yield paths.map(({ token }, idx) => [token, [combination[idx]]]); // Yield valid routes
       }
     }
   }
 
+  // Helper generator for Cartesian product of arrays
   private static *cartesianProduct(arrays: string[][]): Generator<string[]> {
     if (!arrays.length) return;
 
     function* helper(index: number, current: string[]): Generator<string[]> {
       if (index === arrays.length) {
-        yield current;
+        yield current; // Yield complete combinations
         return;
       }
       for (const item of arrays[index]) {
-        yield* helper(index + 1, [...current, item]);
+        yield* helper(index + 1, [...current, item]); // Recurse to the next level
       }
     }
 
-    yield* helper(0, []);
+    yield* helper(0, []); // Start the recursive generation
   }
 }
