@@ -1,0 +1,23 @@
+{
+  "name": "defi-data-processor",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "clear": "rm defi.*",
+    "start": "ts-node src/index.ts",
+    "build": "tsc",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\""
+  },
+  "dependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/stream-json": "^1.7.8",
+    "better-sqlite3": "^11.9.1",
+    "stream-json": "^1.9.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "prettier": "^3.5.3"
+  }
+}
