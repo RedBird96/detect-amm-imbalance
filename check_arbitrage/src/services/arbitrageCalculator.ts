@@ -1,3 +1,18 @@
+/**
+ * Core arbitrage calculation service.
+ * This class is responsible for detecting and calculating arbitrage opportunities
+ * across different liquidity pools in the DeFi ecosystem.
+ * 
+ * Features:
+ * - Real-time arbitrage detection
+ * - Multi-hop path analysis
+ * - Fee calculation and adjustment
+ * - Event-based updates
+ * - Comprehensive logging
+ * 
+ * @class ArbitrageCalculator
+ */
+
 import { ethers } from "ethers";
 import fs from "fs";
 import { Mutex } from "async-mutex";
@@ -15,14 +30,20 @@ import { DatabaseManager } from "../database/dbManager";
  * Extends EventEmitter to broadcast arbitrage opportunities to subscribers.
  */
 export class ArbitrageCalculator extends EventEmitter {
+  /** Database manager for accessing pool and route data */
   private dbManager: DatabaseManager;
+  
+  /** File stream for logging arbitrage opportunities */
   private logStream: fs.WriteStream;
+  
+  /** Mutex for ensuring thread-safe calculations */
   private mutex = new Mutex();
 
   /**
    * Creates a new ArbitrageCalculator instance.
-   *
-   * @param {DatabaseManager} dbManager - Database manager instance for accessing pool and route data
+   * Initializes logging and database connection.
+   * 
+   * @param {DatabaseManager} dbManager - Database manager instance
    */
   constructor(dbManager: DatabaseManager) {
     super();
@@ -32,7 +53,8 @@ export class ArbitrageCalculator extends EventEmitter {
 
   /**
    * Logs a message to both console and log file.
-   *
+   * Ensures consistent logging across the application.
+   * 
    * @param {string} message - Message to be logged
    * @private
    */
@@ -44,7 +66,8 @@ export class ArbitrageCalculator extends EventEmitter {
   /**
    * Calculates arbitrage opportunities for a given pool.
    * Analyzes all possible routes through the pool and calculates potential profits.
-   *
+   * Uses the constant product formula (x * y = k) with fee adjustments.
+   * 
    * @param {any} poolInfo - Information about the liquidity pool
    * @private
    * @async
@@ -65,7 +88,7 @@ export class ArbitrageCalculator extends EventEmitter {
     // Get all possible routes that include this pool
     const routePathIds = lp2routeMapping.get(poolInfo.address);
     if (routePathIds) {
-      // Process all routes in parallel
+      // Process all routes in parallel for efficiency
       await Promise.all(
         routePathIds.map(async (pathId) => {
           const routePath = routeMap.get(pathId);
@@ -79,17 +102,14 @@ export class ArbitrageCalculator extends EventEmitter {
             for (const pathItem of routePath.routeInfo) {
               const lpPool = this.dbManager.getLPMap().get(pathItem.lp);
               if (lpPool) {
-                // Determine token order in the pool
-                const isToken1Target =
-                  pathItem.target === lpPool.token1_address;
-                // Set input and output tokens based on direction
+                // Determine token order and calculate amounts
+                const isToken1Target = pathItem.target === lpPool.token1_address;
                 const tokenIn = isToken1Target
                   ? lpPool.token2_address.toLowerCase()
                   : lpPool.token1_address.toLowerCase();
                 const tokenOut = isToken1Target
                   ? lpPool.token1_address.toLowerCase()
                   : lpPool.token2_address.toLowerCase();
-                // Get corresponding reserves
                 const reserveIn = isToken1Target
                   ? lpPool.reserve2
                   : lpPool.reserve1;
@@ -109,7 +129,7 @@ export class ArbitrageCalculator extends EventEmitter {
                 const decimalsIn = tokenInfoIn ? tokenInfoIn.decimals : 0;
                 const decimalsOut = tokenInfoOut ? tokenInfoOut.decimals : 0;
 
-                // Update path description for logging
+                // Update path description
                 pathDescription += ` -> ${tokenSymbolOut}`;
 
                 // Calculate output amount using constant product formula
@@ -122,22 +142,20 @@ export class ArbitrageCalculator extends EventEmitter {
                   decimalsOut,
                 );
 
-                // Convert amounts to human-readable format for logging
+                // Convert amounts for logging
                 const adjustedCurrentAmount =
                   Number(currentAmount) / 10 ** decimalsIn;
                 const adjustedAmountOut = Number(amountOut) / 10 ** decimalsOut;
 
                 // Add step to log description
                 logDescription += ` -> ${adjustedAmountOut.toFixed(decimalsOut)} ${tokenSymbolOut} (${lpPool.address} - ${isToken1Target})\r\n`;
-                // Update current amount for next hop
                 currentAmount = amountOut;
               }
             }
 
-            // Calculate final profit
+            // Calculate and log profit
             const profit = currentAmount - startAmount;
             const adjustedProfit = Number(profit) / 10 ** 18;
-            // Log if profitable
             if (profit > 0n) {
               this.logMessage(
                 `Arbitrage opportunity detected! Path: ${pathDescription} Profit: ${adjustedProfit.toFixed(18)} ETH`,
@@ -145,7 +163,8 @@ export class ArbitrageCalculator extends EventEmitter {
               this.logMessage(`Calculation steps: ${logDescription}`);
             }
             console.log(`LP updated: ${pathId}, ${pathDescription}, ${adjustedProfit}`);
-            // Emit update regardless of profitability
+            
+            // Emit update for real-time broadcasting
             this.emit("arbitrageRateUpdated", {
               pathId,
               pathDescription,
@@ -158,9 +177,9 @@ export class ArbitrageCalculator extends EventEmitter {
   }
 
   /**
-   * Calculates the output amount for a given input amount, considering fees and decimals.
-   * Uses the constant product formula (x * y = k) with fee adjustment.
-   *
+   * Calculates the output amount for a given input amount using the constant product formula.
+   * Takes into account fees and token decimals.
+   * 
    * @param {bigint} amountIn - Input amount
    * @param {bigint} reserveIn - Reserve of input token
    * @param {bigint} reserveOut - Reserve of output token
@@ -199,17 +218,7 @@ export class ArbitrageCalculator extends EventEmitter {
     // (x + Δx)(y - Δy) = xy
     // where x = reserveIn, y = reserveOut, Δx = amountInWithFee
     const numerator = amountInWithFee * adjustedReserveOut;
-    const denominator = BigInt(
-      Math.floor(Number(adjustedReserveIn) * feeMultiplier) +
-        Number(adjustedAmountIn),
-    );
-
-    // Prevent division by zero
-    if (denominator === 0n) {
-      return 0n;
-    }
-
-    // Return calculated output amount
+    const denominator = adjustedReserveIn + amountInWithFee;
     return numerator / denominator;
   }
 
