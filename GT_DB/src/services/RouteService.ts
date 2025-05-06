@@ -6,6 +6,7 @@ import { parser } from 'stream-json';
 import { streamArray } from 'stream-json/streamers/StreamArray';
 import { CONFIG } from '../config/constants';
 import { LPData, RoutePath, PathGroup, PathGroupItem, TABLES } from '../types';
+import { fetchTokenAddresses } from '../utils/helpers';
 
 export class RouteService {
   // Method to process and store route paths from a file
@@ -26,10 +27,11 @@ export class RouteService {
         return pair ? { ...pair } : null;
       })
       .filter((lp): lp is LPData => lp !== null); // Filter out null values
-
+    
     // Insert LPs and routes into the database
     if (lpObjects.length > 0) {
-      await DatabaseService.batchInsertLPs(lpObjects);
+      const updatedLpArr = await fetchTokenAddresses(lpObjects);
+      await DatabaseService.batchInsertLPs(updatedLpArr);
     }
     const routeStrings = routeQueue.map((path) => JSON.stringify(path));
     await DatabaseService.batchInsertRoutes(routeStrings);
@@ -106,8 +108,8 @@ export class RouteService {
           lpSet.add(lp); // Add LP to the set
           tokenPairs.set(lp, {
             address: lp,
-            token1_address: token,
-            token2_address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // Default second token
+            token1_address: '',
+            token2_address: '',
           });
         });
       });

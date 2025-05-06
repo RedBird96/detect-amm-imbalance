@@ -11,7 +11,11 @@
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/stream-json": "^1.7.8",
+    "@uniswap/sdk": "^3.0.3",
     "better-sqlite3": "^11.9.1",
+    "ethereum-multicall": "^2.26.0",
+    "ethers": "^5.0.0",
+    "multicall": "^1.0.1",
     "stream-json": "^1.9.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"

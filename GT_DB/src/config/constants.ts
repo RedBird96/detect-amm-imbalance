@@ -19,3 +19,8 @@ export const CONFIG = {
   MIN_PATH_LENGTH: 2,         // Minimum number of hops required in a valid route.
   ADDRESS_REGEX: /^0x[a-fA-F0-9]{40}$/, // Regular expression to validate Ethereum addresses.
 } as const; // Marked as readonly to maintain immutability.
+
+export const PoolABI = [
+  "function token0() view returns (address)",
+  "function token1() view returns (address)"
+];
